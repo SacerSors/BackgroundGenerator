@@ -37,9 +37,11 @@ PLAINS_PERCENTAGE = 0.5
 TALE_PERCENTAGE = 1 - HILL_PERCENTAGE - PLAINS_PERCENTAGE
 
 # === Random Offsets für Anti-Burn-In ===
-# Verschiebt das gesamte Grid zufällig
-GRID_OFFSET_X = random.randint(0, int(HEX_RADIUS_BASE * 2))
-GRID_OFFSET_Y = random.randint(0, int(HEX_RADIUS_BASE * 2))
+# Verschiebt das gesamte Grid zufällig (Verschiebung um bis zu 1 Hexagon)
+MAX_OFFSET_X = int(HEX_RADIUS_BASE * 2)
+MAX_OFFSET_Y = int(HEX_RADIUS_BASE * 2)
+GRID_OFFSET_X = random.randint(0, MAX_OFFSET_X)
+GRID_OFFSET_Y = random.randint(0, MAX_OFFSET_Y)
 HUE_OFFSET = random.random()
 
 endrandomizen =False
@@ -126,11 +128,14 @@ def generate_wallpaper():
     draw = ImageDraw.Draw(image)
 
     # Basis-Grid Größe (unprojiziert)
-    grid_width = RENDER_WIDTH + HEX_RADIUS_BASE * 4
-    grid_height = int(RENDER_HEIGHT * 2.0) + HEX_RADIUS_BASE * 4
+    # Wir machen das Grid groß genug, um den maximalen Offset in jede Richtung abzudecken.
+    grid_width = RENDER_WIDTH + HEX_RADIUS_BASE * 4 + (MAX_OFFSET_X * SUPERSAMPLE)
+    grid_height = int(RENDER_HEIGHT * 2.0) + HEX_RADIUS_BASE * 4 + (MAX_OFFSET_Y * SUPERSAMPLE)
 
-    start_x = -HEX_RADIUS_BASE * 2 + (GRID_OFFSET_X * SUPERSAMPLE)
-    start_y = -RENDER_HEIGHT + (GRID_OFFSET_Y * SUPERSAMPLE)
+    # Wir beginnen weiter im Negativen, damit auch bei einer positiven Verschiebung
+    # durch den GRID_OFFSET keine schwarzen Ränder (links/oben) entstehen.
+    start_x = -HEX_RADIUS_BASE * 2 - (MAX_OFFSET_X * SUPERSAMPLE) + (GRID_OFFSET_X * SUPERSAMPLE)
+    start_y = -RENDER_HEIGHT - (MAX_OFFSET_Y * SUPERSAMPLE) + (GRID_OFFSET_Y * SUPERSAMPLE)
 
     hex_width = 2 * HEX_RADIUS_BASE
     hex_height = math.sqrt(3) * HEX_RADIUS_BASE
@@ -247,7 +252,10 @@ def generate_wallpaper():
             draw.polygon([top_pts[2], top_pts[3], base_pts[3], base_pts[2]], fill=side_color_l)
 
         # Dach zeichnen
-        draw.polygon(top_pts, fill=color, outline=BG_COLOR, width=1)
+        # Performance optimization: drawing polygon with outline and width > 1 is extremely slow in PIL.
+        # Instead, draw the polygon fill and then draw the outline with a separate line call.
+        draw.polygon(top_pts, fill=color)
+        draw.line(top_pts + [top_pts[0]], fill=BG_COLOR, width=2)
     image = image.resize((WIDTH, HEIGHT), Image.Resampling.LANCZOS)
     return image
 
