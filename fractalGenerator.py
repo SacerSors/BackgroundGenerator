@@ -10,7 +10,7 @@ from PIL import Image, ImageDraw
 # === Konfiguration ===
 SUPERSAMPLE = 4
 WIDTH, HEIGHT = 2560, 1440
-HEX_RADIUS_BASE = 80 * SUPERSAMPLE # Basis-Radius für die Hexagone
+
 GAP_SIZE = 0
 HEIGHT_ELEVATET = 80
 HEIGHT_BASE = 40
@@ -32,17 +32,14 @@ LACUNARITY = 2.0  # Wie "krisselig" die Details werden
 
 
 
-HILL_PERCENTAGE = 0.4
-PLAINS_PERCENTAGE = 0.4
+HILL_PERCENTAGE = 0.45
+PLAINS_PERCENTAGE = 0.40
 TALE_PERCENTAGE = 1 - HILL_PERCENTAGE - PLAINS_PERCENTAGE
 
 # === Random Offsets für Anti-Burn-In ===
 # Verschiebt das gesamte Grid zufällig (Verschiebung um bis zu 1 Hexagon)
-MAX_OFFSET_X = int(HEX_RADIUS_BASE * 2)
-MAX_OFFSET_Y = int(HEX_RADIUS_BASE * 2)
-GRID_OFFSET_X = random.randint(0, MAX_OFFSET_X)
-GRID_OFFSET_Y = random.randint(0, MAX_OFFSET_Y)
-HUE_OFFSET = random.random()
+
+
 
 endrandomizen =False
 if endrandomizen:
@@ -122,28 +119,41 @@ def apply_isometric(x, y, z, width, height, y_offset=0):
 def generate_wallpaper():
     # Setze den Seed für das Rauschen
     SEED = np.random.randint(2, 999999)  # Startwert für den Zufall
+    base_r = random.randint(65, 95)
+    current_hex_radius = base_r * SUPERSAMPLE
     opensimplex.seed(SEED)
+    HUE_OFFSET = random.random()
+
+
+    MAX_OFFSET_X = int(current_hex_radius * 2 )
+    MAX_OFFSET_Y = int(current_hex_radius * 2 )
+    GRID_OFFSET_X = random.randint(0, MAX_OFFSET_X)
+    GRID_OFFSET_Y = random.randint(0, MAX_OFFSET_Y)
 
     image = Image.new("RGB", (RENDER_WIDTH, RENDER_HEIGHT), BG_COLOR)
     draw = ImageDraw.Draw(image)
 
     # Basis-Grid Größe (unprojiziert)
     # Wir machen das Grid groß genug, um den maximalen Offset in jede Richtung abzudecken.
-    grid_width = RENDER_WIDTH + HEX_RADIUS_BASE * 4 + (MAX_OFFSET_X * SUPERSAMPLE)
-    grid_height = int(RENDER_HEIGHT * 2.0) + HEX_RADIUS_BASE * 4 + (MAX_OFFSET_Y * SUPERSAMPLE)
+    grid_width = RENDER_WIDTH + current_hex_radius * 4 + (MAX_OFFSET_X * SUPERSAMPLE)
+    grid_height = int(RENDER_HEIGHT * 2.0) + current_hex_radius * 4 + (MAX_OFFSET_Y * SUPERSAMPLE)
 
     # Wir beginnen weiter im Negativen, damit auch bei einer positiven Verschiebung
     # durch den GRID_OFFSET keine schwarzen Ränder (links/oben) entstehen.
-    start_x = -HEX_RADIUS_BASE * 2 - (MAX_OFFSET_X * SUPERSAMPLE) + (GRID_OFFSET_X * SUPERSAMPLE)
+    start_x = -current_hex_radius * 2 - (MAX_OFFSET_X * SUPERSAMPLE) + (GRID_OFFSET_X * SUPERSAMPLE)
     start_y = -RENDER_HEIGHT - (MAX_OFFSET_Y * SUPERSAMPLE) + (GRID_OFFSET_Y * SUPERSAMPLE)
 
-    hex_width = 2 * HEX_RADIUS_BASE
-    hex_height = math.sqrt(3) * HEX_RADIUS_BASE
+    hex_width = 2 * current_hex_radius
+    hex_height = math.sqrt(3) * current_hex_radius
     cols = int(grid_width / (hex_width * 0.75)) + 2
     rows = int(grid_height / hex_height) + 2
 
     hexagons_temp = []
     all_noise_values = []
+
+    # Offset für x und y damit nosie an (0,0) nicht ähnlich ist)
+    huge_shifter_x = random.randint(0, int(X_SCALE * 10))
+    huge_shifter_y = random.randint(0, int(Y_SCALE * 10))
 
     for col in range(cols):
         for row in range(rows):
@@ -152,8 +162,14 @@ def generate_wallpaper():
             if col % 2 == 1:
                 y += hex_height / 2
 
-            # Noise mit Streckung berechnen
-            noise_val = fbm(x / X_SCALE, y / Y_SCALE, OCTAVES, PERSISTENCE, LACUNARITY)
+
+
+
+            # Noise mit Streckung  und offset berechnen
+            noise_x = (x + huge_shifter_x) / X_SCALE
+            noise_y = (y + huge_shifter_y) / Y_SCALE
+
+            noise_val = fbm(noise_x, noise_y, OCTAVES, PERSISTENCE, LACUNARITY)
             noise_val = abs(noise_val)  # Ridge-Noise (Flüsse erzwingen)
 
             all_noise_values.append(noise_val)
@@ -212,11 +228,11 @@ def generate_wallpaper():
         cx_top, cy_top = apply_isometric(x, y, z, WIDTH, HEIGHT, y_offset)
 
         # Eckpunkte Boden
-        base_vertices = get_hex_vertices(x, y, HEX_RADIUS_BASE - GAP_SIZE)
+        base_vertices = get_hex_vertices(x, y, current_hex_radius - GAP_SIZE)
         proj_base_vertices = [apply_isometric(vx, vy, 0, RENDER_WIDTH, RENDER_HEIGHT, y_offset) for vx, vy in base_vertices]
 
         # Eckpunkte Dach
-        top_vertices = get_hex_vertices(x, y, HEX_RADIUS_BASE - GAP_SIZE)
+        top_vertices = get_hex_vertices(x, y, current_hex_radius - GAP_SIZE)
         proj_top_vertices = [apply_isometric(vx, vy, z, RENDER_WIDTH, RENDER_HEIGHT, y_offset) for vx, vy in top_vertices]
 
         # Sortierkriterium: y im unprojizierten Raum

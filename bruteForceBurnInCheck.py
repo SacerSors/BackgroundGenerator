@@ -77,4 +77,4 @@ def run_stress_test(iterations=100):
 
 
 if __name__ == "__main__":
-    run_stress_test(1000)
+    run_stress_test(100)
