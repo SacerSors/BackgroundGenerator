@@ -205,25 +205,37 @@ def generate_wallpaper():
     projected_hexagons = []
     y_offset = RENDER_HEIGHT * 0.1 # Verschiebung auf dem Bildschirm
 
+    # Precalculate constants for isometric projection and hexagon vertices
+    pitch = math.pi / 3  # 45 Grad Neigung
+    pitch_cos = math.cos(pitch)
+    pitch_sin = math.sin(pitch)
+    cy_render = RENDER_HEIGHT / 3
+    hex_base_offsets = get_hex_vertices(0, 0, HEX_RADIUS_BASE - GAP_SIZE)
+
     for h in hexagons:
         x, y, z, color = h['x'], h['y'], h['z'], h['color']
 
-        # Mittelpunkt projizieren (Dach)
-        cx_top, cy_top = apply_isometric(x, y, z, WIDTH, HEIGHT, y_offset)
+        proj_base_vertices = []
+        proj_top_vertices = []
 
-        # Eckpunkte Boden
-        base_vertices = get_hex_vertices(x, y, HEX_RADIUS_BASE - GAP_SIZE)
-        proj_base_vertices = [apply_isometric(vx, vy, 0, RENDER_WIDTH, RENDER_HEIGHT, y_offset) for vx, vy in base_vertices]
+        # Calculate vertices inline
+        for dx, dy in hex_base_offsets:
+            vx = x + dx
+            vy = y + dy
 
-        # Eckpunkte Dach
-        top_vertices = get_hex_vertices(x, y, HEX_RADIUS_BASE - GAP_SIZE)
-        proj_top_vertices = [apply_isometric(vx, vy, z, RENDER_WIDTH, RENDER_HEIGHT, y_offset) for vx, vy in top_vertices]
+            # Boden (z=0)
+            vy_tilted_base = vy * pitch_cos
+            proj_base_vertices.append((vx, vy_tilted_base + cy_render + y_offset))
+
+            # Dach (z=z)
+            vy_tilted_top = vy * pitch_cos - z * pitch_sin
+            proj_top_vertices.append((vx, vy_tilted_top + cy_render + y_offset))
 
         # Sortierkriterium: y im unprojizierten Raum
         projected_hexagons.append({
             'sort_y': y,
-            'base_pts': [(p[0], p[1]) for p in proj_base_vertices],
-            'top_pts': [(p[0], p[1]) for p in proj_top_vertices],
+            'base_pts': proj_base_vertices,
+            'top_pts': proj_top_vertices,
             'color': color,
             'z_height': z
         })
@@ -256,7 +268,7 @@ def generate_wallpaper():
         # Instead, draw the polygon fill and then draw the outline with a separate line call.
         draw.polygon(top_pts, fill=color)
         draw.line(top_pts + [top_pts[0]], fill=BG_COLOR, width=2)
-    image = image.resize((WIDTH, HEIGHT), Image.Resampling.LANCZOS)
+    image = image.resize((WIDTH, HEIGHT), Image.Resampling.BOX)
     return image
 
 

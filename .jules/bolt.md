@@ -1,0 +1,3 @@
+## 2024-05-14 - Pillow Resize Performance
+**Learning:** `Image.Resampling.LANCZOS` is extremely slow compared to `Image.Resampling.BOX` for downscaling large images (like supersampled wallpaper generation), taking ~1.04s vs ~0.28s (a ~70% overall script speedup). In this specific project context of rendering isometric hexagonal patterns, `BOX` filtering provides sufficient quality. In addition, `apply_isometric` can be manually inline-optimized to avoid thousands of unneeded math function calls.
+**Action:** When downscaling procedurally generated polygon graphics without complex textures, evaluate if `BOX` resampling can be used instead of `LANCZOS` to significantly improve performance.
