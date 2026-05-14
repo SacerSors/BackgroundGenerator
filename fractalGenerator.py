@@ -8,32 +8,54 @@ from PIL import Image, ImageDraw
 
 
 # === Konfiguration ===
+SUPERSAMPLE = 4
 WIDTH, HEIGHT = 2560, 1440
-HEX_RADIUS_BASE = 50  # Basis-Radius für die Hexagone
-GAP_SIZE = 2
+HEX_RADIUS_BASE = 80 * SUPERSAMPLE # Basis-Radius für die Hexagone
+GAP_SIZE = 0
 
+
+
+RENDER_WIDTH = WIDTH * SUPERSAMPLE
+RENDER_HEIGHT = HEIGHT * SUPERSAMPLE
 # === Noise Konfiguration (Das Fraktal) ===
-SCALE = 400.0  # Der "Zoom-Faktor". Größer = breitere, weichere Pfade
-OCTAVES = 4  # Die Anzahl der fraktalen Detail-Schichten
-PERSISTENCE = 0.5  # Wie stark die Details ins Gewicht fallen
+SCALE = RENDER_WIDTH * 0.9  # Der "Zoom-Faktor". Größer = breitere, weichere Pfade
+
+
+X_SCALE = SCALE * 1.2
+Y_SCALE = SCALE * 0.8
+OCTAVES = 2 # Die Anzahl der fraktalen Detail-Schichten
+PERSISTENCE = 0.4  # Wie stark die Details ins Gewicht fallen
 LACUNARITY = 2.0  # Wie "krisselig" die Details werden
 
 SEED = np.random.randint(2, 999999) # Startwert für den Zufall
+
+
+HILL_PERCENTAGE = 0.3
+PLAINS_PERCENTAGE = 0.5
+TALE_PERCENTAGE = 1 - HILL_PERCENTAGE - PLAINS_PERCENTAGE
 
 # === Random Offsets für Anti-Burn-In ===
 # Verschiebt das gesamte Grid zufällig
 GRID_OFFSET_X = random.randint(0, int(HEX_RADIUS_BASE * 2))
 GRID_OFFSET_Y = random.randint(0, int(HEX_RADIUS_BASE * 2))
-# Verschiebt den Startwert der Farben
 HUE_OFFSET = random.random()
+
+endrandomizen =False
+if endrandomizen:
+    SEED=1
+    GRID_OFFSET_X=0
+    GRID_OFFSET_Y=0
+    HUE_OFFSET = 0
+# Verschiebt den Startwert der Farben
+
 
 # === Tile-Arten ===
 BG_COLOR = (0, 0, 0)
-COLOR_DARK = (15, 15, 15)  # Berge (Hoch)
-COLOR_ELEVATED = (35, 35, 35)  # Normal (Mittel)
+COLOR_DARK = (20, 20, 20)
+COLOR_ELEVATED = (30, 30, 30)
 
 # === Farbverlauf für helle Tiles (Täler) ===
-COLOR_BRIGHTNESS = 0.8  # Helligkeit der farbigen Tiles (0.0 bis 1.0)
+COLOR_BRIGHTNESS = 1  # Helligkeit der farbigen Tiles (0.0 bis 1.0)
 
 # Setze den Seed für das Rauschen
 opensimplex.seed(SEED)
@@ -75,7 +97,7 @@ def get_hex_vertices(x, y, draw_radius):
     # Index 4: 210 deg (Top Left)
     # Index 5: 270 deg (Top)
     for i in range(6):
-        angle_deg = 60 * i - 30
+        angle_deg = 60 * i #- 30
         angle_rad = math.pi / 180 * angle_deg
         px = x + draw_radius * math.cos(angle_rad)
         py = y + draw_radius * math.sin(angle_rad)
@@ -83,22 +105,11 @@ def get_hex_vertices(x, y, draw_radius):
     return vertices
 
 def apply_isometric(x, y, z, width, height, y_offset=0):
-    """
-    Wendet eine isometrische (orthografische) Projektion an.
-    Kein Perspektiven-Scaling (Hexagone bleiben gleich groß).
-    """
-    # 1. Zentrieren für die Projektion
-    cx = width / 2
-    cy = height / 2
 
-    # 2. Kippen um die X-Achse (Pitch) - Isometrisch/Schräg von oben
-    pitch = math.pi / 4  # 45 Grad Neigung
+
+    cy = height / 3
+    pitch = math.pi / 3  # 45 Grad Neigung
     y_tilted = y * math.cos(pitch) - z * math.sin(pitch)
-    # z wird für orthografisch nicht zur Skalierung genutzt
-
-    # 3. Orthografische Projektion (kein Scaling durch Tiefe)
-    # x bleibt, y_tilted wird auf den Bildschirm gelegt
-
     x_proj = x
     y_proj = y_tilted + cy + y_offset
 
@@ -106,67 +117,83 @@ def apply_isometric(x, y, z, width, height, y_offset=0):
 
 
 def generate_wallpaper():
-    image = Image.new("RGB", (WIDTH, HEIGHT), BG_COLOR)
+    image = Image.new("RGB", (RENDER_WIDTH, RENDER_HEIGHT), BG_COLOR)
     draw = ImageDraw.Draw(image)
 
     # Basis-Grid Größe (unprojiziert)
-    # Da wir kippen, brauchen wir mehr Y-Reihen. Damit auch oben kein schwarzer Rand ist,
-    # setzen wir den start_y noch weiter nach oben.
-    grid_width = WIDTH + HEX_RADIUS_BASE * 4
-    grid_height = int(HEIGHT * 2.0) + HEX_RADIUS_BASE * 4
+    grid_width = RENDER_WIDTH + HEX_RADIUS_BASE * 4
+    grid_height = int(RENDER_HEIGHT * 2.0) + HEX_RADIUS_BASE * 4
 
-    start_x = -HEX_RADIUS_BASE * 2 + GRID_OFFSET_X
-    start_y = -HEIGHT + GRID_OFFSET_Y  # Noch weiter oben anfangen, um die obere Kante zu füllen
+    start_x = -HEX_RADIUS_BASE * 2 + (GRID_OFFSET_X * SUPERSAMPLE)
+    start_y = -RENDER_HEIGHT + (GRID_OFFSET_Y * SUPERSAMPLE)
 
-    hex_width = math.sqrt(3) * HEX_RADIUS_BASE
-    hex_height = 2 * HEX_RADIUS_BASE
-    cols = int(grid_width / hex_width) + 2
-    rows = int(grid_height / (hex_height * 0.75)) + 2
+    hex_width = 2 * HEX_RADIUS_BASE
+    hex_height = math.sqrt(3) * HEX_RADIUS_BASE
+    cols = int(grid_width / (hex_width * 0.75)) + 2
+    rows = int(grid_height / hex_height) + 2
 
+    hexagons_temp = []
+    all_noise_values = []
+
+    for col in range(cols):
+        for row in range(rows):
+            x = start_x + col * hex_width * 0.75
+            y = start_y + row * hex_height
+            if col % 2 == 1:
+                y += hex_height / 2
+
+            # Noise mit Streckung berechnen
+            noise_val = fbm(x / X_SCALE, y / Y_SCALE, OCTAVES, PERSISTENCE, LACUNARITY)
+            noise_val = abs(noise_val)  # Ridge-Noise (Flüsse erzwingen)
+
+            all_noise_values.append(noise_val)
+            hexagons_temp.append({'x': x, 'y': y, 'noise': noise_val})
+
+    # === 2. Werte sortieren und exakte Schwellenwerte berechnen ===
+    all_noise_values.sort()
+    total_hexes = len(all_noise_values)
+
+    idx_valley_end = int(total_hexes * TALE_PERCENTAGE)
+    idx_plains_end = int(total_hexes * (TALE_PERCENTAGE + PLAINS_PERCENTAGE))
+
+    thresh_valley = all_noise_values[min(idx_valley_end, total_hexes - 1)]
+    thresh_plains = all_noise_values[min(idx_plains_end, total_hexes - 1)]
+
+    # === 3. Farben und Höhen final zuweisen ===
     hexagons = []
 
-    for row in range(rows):
-        for col in range(cols):
-            x = start_x + col * hex_width
-            if row % 2 == 1:
-                x += hex_width / 2
-            y = start_y + row * hex_height * 0.75
+    for h in hexagons_temp:
+        x = h['x']
+        y = h['y']
+        noise_val = h['noise']  # Den identischen Noise-Wert auslesen!
 
-            # Noise Sampling
-            noise_val = fbm(x / SCALE, y / SCALE, OCTAVES, PERSISTENCE, LACUNARITY)
+        if noise_val >= thresh_plains:
+            # Berge (Die obersten X Prozent)
+            tile_color = COLOR_ELEVATED
+            height_z = 20
+        elif noise_val >= thresh_valley:
+            # Normale Ebene (Die mittleren X Prozent)
+            tile_color = COLOR_DARK
+            height_z = 10
+        else:
+            # Täler (Die untersten X Prozent, ganz nah an der Null-Linie)
+            hue = (((x - start_x) / grid_width) + ((y - start_y) / grid_height)) / 2.0
+            hue = (hue + HUE_OFFSET) % 1.0
+            r, g, b = colorsys.hsv_to_rgb(hue, 1.0, COLOR_BRIGHTNESS)
+            tile_color = (int(r * 255), int(g * 255), int(b * 255))
+            height_z = 0
 
-            # Umkehren der Höhen/Farben-Logik wie vom User gewünscht
-            # Täler (bunt) < Normale Ebene (grau) < Berge (dunkel)
-
-            # Höhe berechnen (z-Achse im lokalen Raum, positiv geht "nach oben")
-            if noise_val > 0.2:
-                # Berge (Hohe Werte)
-                tile_color = COLOR_DARK
-                height_z = 120 * noise_val
-            elif noise_val > -0.2:
-                # Normale Ebene
-                tile_color = COLOR_ELEVATED
-                height_z = 20 + 20 * noise_val
-            else:
-                # Täler (Niedrige Werte)
-                # Bunter Farbverlauf + HUE_OFFSET
-                hue = (((x - start_x) / grid_width) + ((y - start_y) / grid_height)) / 2.0
-                hue = (hue + HUE_OFFSET) % 1.0
-                r, g, b = colorsys.hsv_to_rgb(hue, 1.0, COLOR_BRIGHTNESS)
-                tile_color = (int(r * 255), int(g * 255), int(b * 255))
-                height_z = 0 # Täler sind ganz unten (flach)
-
-            hexagons.append({
-                'x': x,
-                'y': y,
-                'z': height_z,
-                'color': tile_color,
-                'noise': noise_val
-            })
+        hexagons.append({
+            'x': x,
+            'y': y,
+            'z': height_z,
+            'color': tile_color,
+            'noise': noise_val
+        })
 
     # Sortieren für den Painter's Algorithm
     projected_hexagons = []
-    y_offset = HEIGHT * 0.1 # Verschiebung auf dem Bildschirm
+    y_offset = RENDER_HEIGHT * 0.1 # Verschiebung auf dem Bildschirm
 
     for h in hexagons:
         x, y, z, color = h['x'], h['y'], h['z'], h['color']
@@ -176,11 +203,11 @@ def generate_wallpaper():
 
         # Eckpunkte Boden
         base_vertices = get_hex_vertices(x, y, HEX_RADIUS_BASE - GAP_SIZE)
-        proj_base_vertices = [apply_isometric(vx, vy, 0, WIDTH, HEIGHT, y_offset) for vx, vy in base_vertices]
+        proj_base_vertices = [apply_isometric(vx, vy, 0, RENDER_WIDTH, RENDER_HEIGHT, y_offset) for vx, vy in base_vertices]
 
         # Eckpunkte Dach
         top_vertices = get_hex_vertices(x, y, HEX_RADIUS_BASE - GAP_SIZE)
-        proj_top_vertices = [apply_isometric(vx, vy, z, WIDTH, HEIGHT, y_offset) for vx, vy in top_vertices]
+        proj_top_vertices = [apply_isometric(vx, vy, z, RENDER_WIDTH, RENDER_HEIGHT, y_offset) for vx, vy in top_vertices]
 
         # Sortierkriterium: y im unprojizierten Raum
         projected_hexagons.append({
@@ -203,39 +230,20 @@ def generate_wallpaper():
 
         # Kanten (Säulenwände) zeichnen
         if z_height > 1:
-            side_color_1 = darken_color(color, 0.6) # Links
-            side_color_2 = darken_color(color, 0.4) # Rechts
-            side_color_3 = darken_color(color, 0.5) # Unten
+            side_color_r = darken_color(color, 0.2)  # Rechte Wand (am dunkelsten)
+            side_color_f = darken_color(color, 0.2)  # Frontale Wand (heller, blickt zu uns)
+            side_color_l = darken_color(color, 0.2)  # Linke Wand
 
-            # Eckpunkte des Hexagons aus get_hex_vertices:
-            # 0: -30° (Top Right)
-            # 1: 30° (Bottom Right)
-            # 2: 90° (Bottom Center)
-            # 3: 150° (Bottom Left)
-            # 4: 210° (Top Left)
-            # 5: 270° (Top Center)
-
-            # Bei Isometrie/Kippen um X-Achse sind die sichtbaren Kanten:
-            # 1-2 (Bottom Right zu Bottom Center)
-            # 2-3 (Bottom Center zu Bottom Left)
-            # Manchmal 0-1 (Top Right zu Bottom Right)
-            # Manchmal 3-4 (Bottom Left zu Top Left)
-
-            # Wir zeichnen die Wände von hinten nach vorne / Seiten nach Mitte
-
-            # Wand Rechts Oben (0-1)
-            draw.polygon([top_pts[0], top_pts[1], base_pts[1], base_pts[0]], fill=side_color_2)
-            # Wand Links Oben (3-4)
-            draw.polygon([top_pts[3], top_pts[4], base_pts[4], base_pts[3]], fill=side_color_1)
-
-            # Wand Rechts Unten (1-2)
-            draw.polygon([top_pts[1], top_pts[2], base_pts[2], base_pts[1]], fill=darken_color(side_color_2, 0.8))
-            # Wand Links Unten (2-3)
-            draw.polygon([top_pts[2], top_pts[3], base_pts[3], base_pts[2]], fill=darken_color(side_color_1, 0.8))
+            # Wand Rechts (Eckpunkte 0 und 1)
+            draw.polygon([top_pts[0], top_pts[1], base_pts[1], base_pts[0]], fill=side_color_r)
+            # Wand Vorne / Front (Eckpunkte 1 und 2) -> Parallel zum Bildschirmrand!
+            draw.polygon([top_pts[1], top_pts[2], base_pts[2], base_pts[1]], fill=side_color_f)
+            # Wand Links (Eckpunkte 2 und 3)
+            draw.polygon([top_pts[2], top_pts[3], base_pts[3], base_pts[2]], fill=side_color_l)
 
         # Dach zeichnen
-        draw.polygon(top_pts, fill=color)
-
+        draw.polygon(top_pts, fill=color, outline=BG_COLOR, width=2)
+    image = image.resize((WIDTH, HEIGHT), Image.Resampling.LANCZOS)
     return image
 
 
