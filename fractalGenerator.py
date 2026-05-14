@@ -1,3 +1,4 @@
+import colorsys
 import math
 
 import numpy as np
@@ -22,7 +23,9 @@ SEED = np.random.randint(2, 999999) # Startwert für den Zufall
 BG_COLOR = (0, 0, 0)
 COLOR_DARK = (15, 15, 15)
 COLOR_ELEVATED = (35, 35, 35)
-COLOR_PATH = (150, 150, 150)
+
+# === Farbverlauf für helle Tiles ===
+COLOR_BRIGHTNESS = 0.8  # Helligkeit der farbigen Tiles (0.0 bis 1.0)
 
 # Setze den Seed für das Rauschen
 opensimplex.seed(SEED)
@@ -83,7 +86,13 @@ def generate_wallpaper():
             # === Organische Verteilung ===
             # Der normalisierte noise_val liegt zwischen -1.0 und 1.0
             if noise_val > 0.25:
-                tile_color = COLOR_PATH  # "Gipfel"
+                # "Gipfel" - farbig
+                # Diagonaler Fortschritt (von links oben nach rechts unten)
+                hue = ((x / WIDTH) + (y / HEIGHT)) / 2.0
+                # Sicherstellen, dass Hue zwischen 0 und 1 bleibt (optional, aber sicherer)
+                hue = hue % 1.0
+                r, g, b = colorsys.hsv_to_rgb(hue, 1.0, COLOR_BRIGHTNESS)
+                tile_color = (int(r * 255), int(g * 255), int(b * 255))
             elif noise_val > 0.0:
                 tile_color = COLOR_ELEVATED  # "Hänge"
             else:
