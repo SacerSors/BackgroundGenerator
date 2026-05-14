@@ -12,7 +12,9 @@ SUPERSAMPLE = 4
 WIDTH, HEIGHT = 2560, 1440
 HEX_RADIUS_BASE = 80 * SUPERSAMPLE # Basis-Radius für die Hexagone
 GAP_SIZE = 0
-
+HEIGHT_ELEVATET = 80
+HEIGHT_BASE = 40
+SPECTRUM_STRETCH = 3.0
 
 
 RENDER_WIDTH = WIDTH * SUPERSAMPLE
@@ -27,7 +29,7 @@ OCTAVES = 2 # Die Anzahl der fraktalen Detail-Schichten
 PERSISTENCE = 0.4  # Wie stark die Details ins Gewicht fallen
 LACUNARITY = 2.0  # Wie "krisselig" die Details werden
 
-SEED = np.random.randint(2, 999999) # Startwert für den Zufall
+
 
 
 HILL_PERCENTAGE = 0.3
@@ -57,8 +59,7 @@ COLOR_ELEVATED = (30, 30, 30)
 # === Farbverlauf für helle Tiles (Täler) ===
 COLOR_BRIGHTNESS = 1  # Helligkeit der farbigen Tiles (0.0 bis 1.0)
 
-# Setze den Seed für das Rauschen
-opensimplex.seed(SEED)
+
 
 
 def fbm(x, y, octaves, persistence, lacunarity):
@@ -117,6 +118,10 @@ def apply_isometric(x, y, z, width, height, y_offset=0):
 
 
 def generate_wallpaper():
+    # Setze den Seed für das Rauschen
+    SEED = np.random.randint(2, 999999)  # Startwert für den Zufall
+    opensimplex.seed(SEED)
+
     image = Image.new("RGB", (RENDER_WIDTH, RENDER_HEIGHT), BG_COLOR)
     draw = ImageDraw.Draw(image)
 
@@ -170,15 +175,15 @@ def generate_wallpaper():
         if noise_val >= thresh_plains:
             # Berge (Die obersten X Prozent)
             tile_color = COLOR_ELEVATED
-            height_z = 20
+            height_z = HEIGHT_ELEVATET
         elif noise_val >= thresh_valley:
             # Normale Ebene (Die mittleren X Prozent)
             tile_color = COLOR_DARK
-            height_z = 10
+            height_z = HEIGHT_BASE
         else:
             # Täler (Die untersten X Prozent, ganz nah an der Null-Linie)
             hue = (((x - start_x) / grid_width) + ((y - start_y) / grid_height)) / 2.0
-            hue = (hue + HUE_OFFSET) % 1.0
+            hue = (hue / SPECTRUM_STRETCH + HUE_OFFSET) % 1.0
             r, g, b = colorsys.hsv_to_rgb(hue, 1.0, COLOR_BRIGHTNESS)
             tile_color = (int(r * 255), int(g * 255), int(b * 255))
             height_z = 0
@@ -230,9 +235,9 @@ def generate_wallpaper():
 
         # Kanten (Säulenwände) zeichnen
         if z_height > 1:
-            side_color_r = darken_color(color, 0.2)  # Rechte Wand (am dunkelsten)
-            side_color_f = darken_color(color, 0.2)  # Frontale Wand (heller, blickt zu uns)
-            side_color_l = darken_color(color, 0.2)  # Linke Wand
+            side_color_r = darken_color(color, 0.1)  # Rechte Wand (am dunkelsten)
+            side_color_f = darken_color(color, 0.1)  # Frontale Wand (heller, blickt zu uns)
+            side_color_l = darken_color(color, 0.1)  # Linke Wand
 
             # Wand Rechts (Eckpunkte 0 und 1)
             draw.polygon([top_pts[0], top_pts[1], base_pts[1], base_pts[0]], fill=side_color_r)
@@ -242,7 +247,7 @@ def generate_wallpaper():
             draw.polygon([top_pts[2], top_pts[3], base_pts[3], base_pts[2]], fill=side_color_l)
 
         # Dach zeichnen
-        draw.polygon(top_pts, fill=color, outline=BG_COLOR, width=2)
+        draw.polygon(top_pts, fill=color, outline=BG_COLOR, width=1)
     image = image.resize((WIDTH, HEIGHT), Image.Resampling.LANCZOS)
     return image
 
