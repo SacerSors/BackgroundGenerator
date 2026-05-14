@@ -1,37 +1,89 @@
 import numpy as np
 from PIL import Image
 import time
+import multiprocessing
+import os
 
 from fractalGenerator import generate_wallpaper
 from fractalGenerator import HEIGHT, WIDTH
 
+# 1. Globale Variable deklarieren, aber NOCH NICHT füllen
+shared_counter = None
 
-# Hinweis: Dieses Skript setzt voraus, dass generate_wallpaper()
-# in deinem Hauptskript definiert ist und SEED/OFFSETS bei jedem Aufruf würfelt.
 
-def run_stress_test(iterations=100):
-    print(f"=== OLED Belastungstest gestartet ({iterations} Iterationen) ===")
+# 2. Diese Funktion wird von jedem Worker beim Start EINMAL ausgeführt
+def init_worker(counter):
+    global shared_counter
+    shared_counter = counter
 
-    # Accumulator für die Bilder (Float32 verhindert Überlauf)
-    # Nutzt RENDER_WIDTH/HEIGHT falls du das Supersampling im Test behalten willst,
-    # ansonsten WIDTH/HEIGHT für einen schnelleren Check.
 
-    acc = np.zeros((HEIGHT, WIDTH, 3), dtype=np.float32)
+def batch_worker(num_images):
+    """Rechnet einen festen Block an Bildern ab und aktualisiert den Zähler."""
+    local_acc = np.zeros((HEIGHT, WIDTH, 3), dtype=np.float32)
+
+    for _ in range(num_images):
+        img = generate_wallpaper()
+        local_acc += np.array(img, dtype=np.float32)
+        del img  # Hab das del wieder rein, schont den RAM bei 1000 Bildern enorm!
+
+        # Sicherer Zugriff auf den ECHTEN gemeinsamen Zähler
+        with shared_counter.get_lock():
+            shared_counter.value += 1
+
+    return local_acc
+
+
+def run_stress_test_ultra_stable(total_images=1000):
+    num_workers = os.cpu_count()
+    images_per_worker = total_images // num_workers
+    remainder = total_images % num_workers
+
+    tasks = [images_per_worker] * num_workers
+    tasks[0] += remainder
+
+    print(f"=== Ultra-Stabiler OLED Batch-Test ===")
+    print(f"Bilder: {total_images} | Threads: {num_workers} | Batch-Größe: ~{images_per_worker}")
+    print("Starte Motoren...\n")
 
     start_time = time.time()
 
-    for i in range(iterations):
-        img = generate_wallpaper()
-        acc += np.array(img, dtype=np.float32)
+    # 3. HIER erschaffen wir das Shared-Memory-Objekt im Hauptprozess
+    counter = multiprocessing.Value('i', 0)
 
-        if (i + 1) % 10 == 0:
-            avg_temp = (acc / (i + 1)).mean()
-            print(f"Fortschritt: {i + 1}/{iterations} | Aktueller Helligkeitsschnitt: {avg_temp:.2f}/255")
+    # 4. Wir übergeben den Counter via 'initializer' an die Worker
+    with multiprocessing.Pool(processes=num_workers, initializer=init_worker, initargs=(counter,)) as pool:
+        result_objects = pool.map_async(batch_worker, tasks)
 
-    # Durchschnittsbild berechnen
-    heatmap_array = acc / iterations
+        # ETA-Loop: Läuft, solange die Worker noch rechnen
+        while not result_objects.ready():
+            # WICHTIG: Wir lesen den echten 'counter' aus dem Hauptprozess aus
+            done = counter.value
 
-    # --- STATISTIK AUSWERTUNG ---
+            if done > 0:
+                elapsed = time.time() - start_time
+                per_img = elapsed / done
+                eta = (total_images - done) * per_img
+                print(f"\rFortschritt: {done}/{total_images} | "
+                      f"Schnitt: {per_img:.2f}s/Bild | ETA: {int(eta)}s    ", end="")
+            else:
+                print(f"\rWarte auf erstes Bild...    ", end="")
+
+            time.sleep(1)  # CPU im Hauptthread schonen
+
+        # Ergebnisse einsammeln, wenn alle fertig sind
+        results = result_objects.get()
+
+    print("\n\nBerechnung fertig. Führe Ergebnisse zusammen...")
+
+    # --- Ab hier bleibt dein Code exakt gleich (Statistik-Auswertung) ---
+    final_acc = np.zeros((HEIGHT, WIDTH, 3), dtype=np.float32)
+    for res in results:
+        final_acc += res
+
+
+    # --- DEINE AUSFÜHRLICHE STATISTIK-AUSWERTUNG ---
+    heatmap_array = final_acc / total_images
+
     # 1. Gesamtdurchschnitt pro Kanal
     avg_r = np.mean(heatmap_array[:, :, 0])
     avg_g = np.mean(heatmap_array[:, :, 1])
@@ -39,14 +91,16 @@ def run_stress_test(iterations=100):
     total_avg = (avg_r + avg_g + avg_b) / 3.0
 
     # 2. Hotspots (Maximalwerte eines einzelnen Pixels über die Zeit)
-    # Wir suchen das Pixel, das über alle Bilder hinweg am hellsten war
-    max_pixel_channels = np.max(heatmap_array, axis=(0, 1))  # Max pro Kanal
-    max_brightness_map = np.mean(heatmap_array, axis=2)  # Helligkeitsmap (Schnitt der Kanäle)
-    absolute_max_pixel = np.max(max_brightness_map)  # Der hellste Punkt im Durchschnittsbild
+    max_r = np.max(heatmap_array[:, :, 0])
+    max_g = np.max(heatmap_array[:, :, 1])
+    max_b = np.max(heatmap_array[:, :, 2])
 
-    print("\n" + "=" * 40)
+    max_brightness_map = np.mean(heatmap_array, axis=2)
+    absolute_max_pixel = np.max(max_brightness_map)
+
+    print("\n" + "=" * 45)
     print("ERGEBNIS DER BELASTUNGSANALYSE")
-    print("=" * 40)
+    print("=" * 45)
 
     print(f"1. Gesamtdurchschnittliche Belastung (Skala 0-255)")
     print(f"   Rot:   ~{avg_r:.2f}")
@@ -57,9 +111,9 @@ def run_stress_test(iterations=100):
 
     print(f"\n2. Maximal mögliche 'Hotspots' (Skala 0-255)")
     print(f"   (Durchschnittliche Belastung des hellsten Pixels)")
-    print(f"   Max Rot:   {max_pixel_channels[0]:.2f}")
-    print(f"   Max Grün:  {max_pixel_channels[1]:.2f}")
-    print(f"   Max Blau:  {max_pixel_channels[2]:.2f}")
+    print(f"   Max Rot:   {max_r:.2f}")
+    print(f"   Max Grün:  {max_g:.2f}")
+    print(f"   Max Blau:  {max_b:.2f}")
     print(f"   Max Helligkeit (Pixel-Mittelwert): {absolute_max_pixel:.2f} / 255")
 
     # Abweichungs-Check
@@ -73,8 +127,10 @@ def run_stress_test(iterations=100):
     # Heatmap speichern
     heatmap_img = Image.fromarray(np.clip(heatmap_array, 0, 255).astype(np.uint8))
     heatmap_img.save("oled_stress_test_result.png")
-    print("\nHeatmap wurde als 'oled_stress_test_result.png' gespeichert.")
+    print(f"\nHeatmap wurde als 'oled_stress_test_result.png' gespeichert.")
+    print(f"Gesamtdauer: {time.time() - start_time:.1f}s")
 
 
 if __name__ == "__main__":
-    run_stress_test(100)
+    # Jetzt kannst du bedenkenlos hohe Zahlen (200, 500, etc.) reinhauen!
+    run_stress_test_ultra_stable(1000)

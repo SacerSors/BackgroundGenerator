@@ -32,8 +32,8 @@ LACUNARITY = 2.0  # Wie "krisselig" die Details werden
 
 
 
-HILL_PERCENTAGE = 0.45
-PLAINS_PERCENTAGE = 0.40
+HILL_PERCENTAGE = 0.35
+PLAINS_PERCENTAGE = 0.45
 TALE_PERCENTAGE = 1 - HILL_PERCENTAGE - PLAINS_PERCENTAGE
 
 # === Random Offsets für Anti-Burn-In ===
@@ -83,8 +83,8 @@ def fbm(x, y, octaves, persistence, lacunarity):
 
 
 def darken_color(color, factor=0.7):
-    """Macht eine RGB-Farbe dunkler."""
-    return tuple(int(max(0, c * factor)) for c in color)
+
+    return int(color[0] * factor), int(color[1] * factor), int(color[2] * factor)
 
 
 def get_hex_vertices(x, y, draw_radius):
@@ -188,90 +188,99 @@ def generate_wallpaper():
     # === 3. Farben und Höhen final zuweisen ===
     hexagons = []
 
+    # === 3. Farben, Höhen und Projektion IN EINEM SCHRITT ===
+    projected_hexagons = []
+    y_offset = RENDER_HEIGHT * 0.1
+
+    # Vorberechnete Konstanten für Isometrie
+    pitch = math.pi / 3
+    pitch_cos = math.cos(pitch)
+    pitch_sin = math.sin(pitch)
+    cy_render = RENDER_HEIGHT / 3
+    hex_base_offsets = get_hex_vertices(0, 0, current_hex_radius - GAP_SIZE)
+
+    # Vorberechnete Schatten-Farben (spart zehntausende Rechenoperationen!)
+    SIDE_COLOR_ELEVATED = darken_color(COLOR_ELEVATED, 0.1)
+    SIDE_COLOR_DARK = darken_color(COLOR_DARK, 0.1)
+
     for h in hexagons_temp:
         x = h['x']
         y = h['y']
-        noise_val = h['noise']  # Den identischen Noise-Wert auslesen!
+        noise_val = h['noise']
 
-        if noise_val >= thresh_plains:
-            # Berge (Die obersten X Prozent)
-            tile_color = COLOR_ELEVATED
-            height_z = HEIGHT_ELEVATET
-        elif noise_val >= thresh_valley:
-            # Normale Ebene (Die mittleren X Prozent)
-            tile_color = COLOR_DARK
-            height_z = HEIGHT_BASE
-        else:
-            # Täler (Die untersten X Prozent, ganz nah an der Null-Linie)
+        # 1. Farbe, Höhe und Schattenfarbe bestimmen
+        if noise_val >= thresh_plains:  #-------------- Gray Hills------------------
+            color = COLOR_ELEVATED
+            z = HEIGHT_ELEVATET
+            side_color = SIDE_COLOR_ELEVATED
+            outline_color = BG_COLOR
+        elif noise_val >= thresh_valley:    #-------------- Black Plains------------------
+            color = COLOR_DARK
+            z = HEIGHT_BASE
+            side_color = SIDE_COLOR_DARK
+            outline_color = BG_COLOR
+        else:       #-------------- Colored Tales------------------
             hue = (((x - start_x) / grid_width) + ((y - start_y) / grid_height)) / 2.0
             hue = (hue / SPECTRUM_STRETCH + HUE_OFFSET) % 1.0
             r, g, b = colorsys.hsv_to_rgb(hue, 1.0, COLOR_BRIGHTNESS)
-            tile_color = (int(r * 255), int(g * 255), int(b * 255))
-            height_z = 0
+            color = (int(r * 220), int(g * 220), int(b * 220))
+            z = 0
+            # Nur für die bunten Täler müssen wir den Schatten dynamisch berechnen
+            side_color = darken_color(color, 0.1)
 
-        hexagons.append({
-            'x': x,
-            'y': y,
-            'z': height_z,
-            'color': tile_color,
-            'noise': noise_val
-        })
+            core_r, core_g, core_b = colorsys.hsv_to_rgb(hue, 0.75, COLOR_BRIGHTNESS)
+            outline_color = (int(core_r * 255), int(core_g * 255), int(core_b * 255))
 
-    # Sortieren für den Painter's Algorithm
-    projected_hexagons = []
-    y_offset = RENDER_HEIGHT * 0.1 # Verschiebung auf dem Bildschirm
+            # === OPTIONALES CULLING (Ignoriert Hexagone, die weit links/rechts außerhalb des Bildschirms liegen) ===
+        if x < -current_hex_radius * 4 or x > RENDER_WIDTH + current_hex_radius * 4:
+            continue
 
-    for h in hexagons:
-        x, y, z, color = h['x'], h['y'], h['z'], h['color']
+        # 2. Sofort projizieren
+        proj_base_vertices = []
+        proj_top_vertices = []
 
-        # Mittelpunkt projizieren (Dach)
-        cx_top, cy_top = apply_isometric(x, y, z, WIDTH, HEIGHT, y_offset)
+        for dx, dy in hex_base_offsets:
+            vx = x + dx
+            vy = y + dy
 
-        # Eckpunkte Boden
-        base_vertices = get_hex_vertices(x, y, current_hex_radius - GAP_SIZE)
-        proj_base_vertices = [apply_isometric(vx, vy, 0, RENDER_WIDTH, RENDER_HEIGHT, y_offset) for vx, vy in base_vertices]
+            # Boden (z=0)
+            vy_tilted_base = vy * pitch_cos
+            proj_base_vertices.append((vx, vy_tilted_base + cy_render + y_offset))
 
-        # Eckpunkte Dach
-        top_vertices = get_hex_vertices(x, y, current_hex_radius - GAP_SIZE)
-        proj_top_vertices = [apply_isometric(vx, vy, z, RENDER_WIDTH, RENDER_HEIGHT, y_offset) for vx, vy in top_vertices]
+            # Dach (z=z)
+            vy_tilted_top = vy * pitch_cos - z * pitch_sin
+            proj_top_vertices.append((vx, vy_tilted_top + cy_render + y_offset))
 
-        # Sortierkriterium: y im unprojizierten Raum
+        # 3. Direkt in die finale Liste speichern
         projected_hexagons.append({
             'sort_y': y,
-            'base_pts': [(p[0], p[1]) for p in proj_base_vertices],
-            'top_pts': [(p[0], p[1]) for p in proj_top_vertices],
+            'base_pts': proj_base_vertices,
+            'top_pts': proj_top_vertices,
             'color': color,
+            'side_color': side_color,  # Wir übergeben die fertig berechnete Schattenfarbe
+            'outline_color': outline_color,
             'z_height': z
         })
 
-    # Painter's Algorithm: Sortieren nach y aufsteigend (kleines y = weiter hinten)
+    # Painter's Algorithm: Sortieren nach y
     projected_hexagons.sort(key=lambda item: item['sort_y'])
 
-    # Zeichnen
+    # === 4. Zeichnen (jetzt viel schlanker) ===
     for h in projected_hexagons:
         base_pts = h['base_pts']
         top_pts = h['top_pts']
         color = h['color']
-        z_height = h['z_height']
+        side_color = h['side_color']
+        outline_color = h['outline_color']
 
-        # Kanten (Säulenwände) zeichnen
-        if z_height > 1:
-            side_color_r = darken_color(color, 0.1)  # Rechte Wand (am dunkelsten)
-            side_color_f = darken_color(color, 0.1)  # Frontale Wand (heller, blickt zu uns)
-            side_color_l = darken_color(color, 0.1)  # Linke Wand
+        if h['z_height'] > 1:
+            # Wir nutzen einfach 3-mal side_color, da sie im Originalcode alle 0.1 waren
+            draw.polygon([top_pts[0], top_pts[1], base_pts[1], base_pts[0]], fill=side_color)
+            draw.polygon([top_pts[1], top_pts[2], base_pts[2], base_pts[1]], fill=side_color)
+            draw.polygon([top_pts[2], top_pts[3], base_pts[3], base_pts[2]], fill=side_color)
 
-            # Wand Rechts (Eckpunkte 0 und 1)
-            draw.polygon([top_pts[0], top_pts[1], base_pts[1], base_pts[0]], fill=side_color_r)
-            # Wand Vorne / Front (Eckpunkte 1 und 2) -> Parallel zum Bildschirmrand!
-            draw.polygon([top_pts[1], top_pts[2], base_pts[2], base_pts[1]], fill=side_color_f)
-            # Wand Links (Eckpunkte 2 und 3)
-            draw.polygon([top_pts[2], top_pts[3], base_pts[3], base_pts[2]], fill=side_color_l)
-
-        # Dach zeichnen
-        # Performance optimization: drawing polygon with outline and width > 1 is extremely slow in PIL.
-        # Instead, draw the polygon fill and then draw the outline with a separate line call.
         draw.polygon(top_pts, fill=color)
-        draw.line(top_pts + [top_pts[0]], fill=BG_COLOR, width=2)
+        draw.line(top_pts + [top_pts[0]], fill=outline_color, width=3)
     image = image.resize((WIDTH, HEIGHT), Image.Resampling.LANCZOS)
     return image
 
