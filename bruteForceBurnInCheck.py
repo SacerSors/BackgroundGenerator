@@ -4,8 +4,8 @@ import time
 import multiprocessing
 import os
 
-from fractalGenerator import generate_wallpaper
-from fractalGenerator import HEIGHT, WIDTH
+from service import generate_wallpaper
+from service import HEIGHT, WIDTH
 
 # 1. Globale Variable deklarieren, aber NOCH NICHT füllen
 shared_counter = None
@@ -133,4 +133,4 @@ def run_stress_test_ultra_stable(total_images=1000):
 
 if __name__ == "__main__":
     # Jetzt kannst du bedenkenlos hohe Zahlen (200, 500, etc.) reinhauen!
-    run_stress_test_ultra_stable(1000)
+    run_stress_test_ultra_stable(300)

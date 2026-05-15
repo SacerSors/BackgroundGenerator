@@ -14,19 +14,19 @@ WIDTH, HEIGHT = 2560, 1440
 GAP_SIZE = 0
 HEIGHT_ELEVATET = 80
 HEIGHT_BASE = 40
-SPECTRUM_STRETCH = 2.5
+SPECTRUM_STRETCH = 1.5
 
 
 RENDER_WIDTH = WIDTH * SUPERSAMPLE
 RENDER_HEIGHT = HEIGHT * SUPERSAMPLE
 # === Noise Konfiguration (Das Fraktal) ===
-SCALE = RENDER_WIDTH * 0.9  # Der "Zoom-Faktor". Größer = breitere, weichere Pfade
+SCALE = RENDER_WIDTH * 0.7  # Der "Zoom-Faktor". Größer = breitere, weichere Pfade
 
 
-X_SCALE = SCALE * 1.2
-Y_SCALE = SCALE * 0.8
-OCTAVES = 2 # Die Anzahl der fraktalen Detail-Schichten
-PERSISTENCE = 0.4  # Wie stark die Details ins Gewicht fallen
+X_SCALE = SCALE * 1.5
+Y_SCALE = SCALE * 1.5
+OCTAVES = 3 # Die Anzahl der fraktalen Detail-Schichten
+PERSISTENCE = 0.8  # Wie stark die Details ins Gewicht fallen
 LACUNARITY = 2.0  # Wie "krisselig" die Details werden
 
 
@@ -52,8 +52,8 @@ if endrandomizen:
 
 # === Tile-Arten ===
 BG_COLOR = (0, 0, 0)
-COLOR_DARK = (20, 20, 20)
-COLOR_ELEVATED = (30, 30, 30)
+COLOR_DARK = (15, 15, 15)
+COLOR_ELEVATED = (25, 25, 25)
 
 # === Farbverlauf für helle Tiles (Täler) ===
 COLOR_BRIGHTNESS = 1  # Helligkeit der farbigen Tiles (0.0 bis 1.0)
@@ -118,8 +118,9 @@ def apply_isometric(x, y, z, width, height, y_offset=0):
 
 def generate_wallpaper():
     # Setze den Seed für das Rauschen
-    SEED = np.random.randint(2, 999999)  # Startwert für den Zufall
-    base_r = random.randint(65, 95)
+    SEED = np.random.randint(2, 9999999)  # Startwert für den Zufall
+    base_r = random.randint(40, 110)
+    base_r = 30
     current_hex_radius = base_r * SUPERSAMPLE
     opensimplex.seed(SEED)
     HUE_OFFSET = random.random()
