@@ -10,6 +10,13 @@ import numpy as np
 import opensimplex
 from PIL import Image, ImageDraw
 
+import platform
+import ctypes
+try:
+    import winreg # Nur für Windows erforderlich
+except ImportError:
+    pass
+
 # === Konfiguration ===
 SUPERSAMPLE = 4
 # Breite verdoppelt für zwei WQHD Monitore!
@@ -43,6 +50,7 @@ GAP_SIZE = 2
 
 FORCE_LAKES=False
 FORCE_RIVERS=False
+
 
 
 def domain_warp(x, y, octaves, persistence, lacunarity, warp_strength=2.0):
@@ -98,9 +106,9 @@ def generate_wallpaper():
     MAX_RETRIES = 15  # Maximale Versuche für ein ausbalanciertes Bild
 
     rnd_type = random.random()
-    if rnd_type <0.6:
+    if rnd_type <0.45:
         rnd_type = "river"
-    elif rnd_type <0.3:
+    elif rnd_type <0.85:
         rnd_type = "lake"
     else:
         rnd_type = "warp"
@@ -298,8 +306,52 @@ def generate_wallpaper():
     return image
 
 
+def set_windows_wallpaper(image_path):
+    """Setzt das Wallpaper unter Windows im Modus 'Span' (Übergreifend für Multi-Monitor)"""
+    try:
+        # 1. Registry anpassen für den Modus "Span" (WallpaperStyle "22")
+        key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Control Panel\Desktop", 0, winreg.KEY_SET_VALUE)
+        winreg.SetValueEx(key, "WallpaperStyle", 0, winreg.REG_SZ, "22")
+        winreg.SetValueEx(key, "TileWallpaper", 0, winreg.REG_SZ, "0")
+        winreg.CloseKey(key)
+    except Exception as e:
+        print(f"Fehler beim Setzen der Registry-Werte (Windows): {e}")
+
+    # 2. Wallpaper über Windows API anwenden
+    SPI_SETDESKWALLPAPER = 20
+    SPIF_UPDATEINIFILE = 0x01
+    SPIF_SENDWININICHANGE = 0x02
+
+    # Die Windows-API benötigt zwingend einen absoluten Pfad
+    abs_path = os.path.abspath(image_path)
+
+    ctypes.windll.user32.SystemParametersInfoW(
+        SPI_SETDESKWALLPAPER,
+        0,
+        abs_path,
+        SPIF_UPDATEINIFILE | SPIF_SENDWININICHANGE
+    )
+
+
+def apply_wallpaper(path_orig, path_left, path_right):
+    """Prüft das OS und wendet das Wallpaper entsprechend an."""
+    system_name = platform.system()
+
+    if system_name == "Windows":
+        print("Windows erkannt. Setze übergreifendes Wallpaper...")
+        # Windows nutzt nativ das große Gesamtbild, das über beide Monitore gestreckt wird
+        set_windows_wallpaper(path_orig)
+
+    elif system_name == "Linux":
+        print("Linux erkannt. Sende DBus Kommando an KDE Plasma...")
+        # KDE nutzt die zugeschnittenen Einzelbilder
+        set_kde_wallpaper(path_left, path_right)
+
+    else:
+        print(f"Nicht unterstütztes Betriebssystem: {system_name}")
+
 def set_kde_wallpaper(path_left, path_right):
-    left_right_switch=1
+    left_right_switch=0
     if left_right_switch ==1:
         path_left_o = path_left
         path_left = path_right
@@ -351,11 +403,13 @@ if __name__ == "__main__":
     timestamp = int(time.time())
     path_left = os.path.join(BASE_PATH, f"oled_grid_left_{timestamp}.png")
     path_right = os.path.join(BASE_PATH, f"oled_grid_right_{timestamp}.png")
+    path_orig = os.path.join(BASE_PATH, f"oled_grid_{timestamp}.png")
 
+    img.save(path_orig)
     # 3. Neue Bilder speichern
     img_left.save(path_left)
     img_right.save(path_right)
 
     print("Bilder gespeichert. Sende DBus Kommando an KDE Plasma...")
-    set_kde_wallpaper(path_left, path_right)
+    apply_wallpaper(path_orig, path_left, path_right)
     print("Erledigt!")
