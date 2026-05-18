@@ -133,4 +133,4 @@ def run_stress_test_ultra_stable(total_images=1000):
 
 if __name__ == "__main__":
     # Jetzt kannst du bedenkenlos hohe Zahlen (200, 500, etc.) reinhauen!
-    run_stress_test_ultra_stable(300)
+    run_stress_test_ultra_stable(200)

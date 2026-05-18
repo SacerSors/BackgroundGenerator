@@ -15,9 +15,8 @@ SUPERSAMPLE = 4
 # Breite verdoppelt für zwei WQHD Monitore!
 WIDTH, HEIGHT = 2560 * 2, 1440
 
-GAP_SIZE = 0
-HEIGHT_ELEVATET = 80
-HEIGHT_BASE = 40
+HEIGHT_ELEVATET = 20 * SUPERSAMPLE
+HEIGHT_BASE = 10 * SUPERSAMPLE
 SPECTRUM_STRETCH = 1.5
 
 RENDER_WIDTH = WIDTH * SUPERSAMPLE
@@ -29,7 +28,7 @@ X_SCALE = SCALE * 1.5
 Y_SCALE = SCALE * 1.5
 OCTAVES = 3
 PERSISTENCE = 0.8
-LACUNARITY = 2.0
+LACUNARITY = 1.5
 
 HILL_PERCENTAGE = 0.35
 PLAINS_PERCENTAGE = 0.45
@@ -40,7 +39,32 @@ BG_COLOR = (0, 0, 0)
 COLOR_DARK = (15, 15, 15)
 COLOR_ELEVATED = (25, 25, 25)
 COLOR_BRIGHTNESS = 1
+GAP_SIZE = 2
 
+FORCE_LAKES=False
+FORCE_RIVERS=False
+
+
+def domain_warp(x, y, octaves, persistence, lacunarity, warp_strength=2.0):
+    # Generiere zwei Offsets mit FBM (verschobene Koordinaten für Vielfalt)
+    q_x = fbm(x, y, octaves, persistence, lacunarity)
+    q_y = fbm(x + 5.2, y + 1.3, octaves, persistence, lacunarity)
+
+    # Wende die Offsets (multipliziert mit der Stärke) auf die Koordinaten an
+    return fbm(x + warp_strength * q_x, y + warp_strength * q_y, octaves, persistence, lacunarity)
+
+
+def double_domain_warp(x, y, octaves, persistence, lacunarity, warp_strength=2.0):
+    # 1. Ebene der Verzerrung (q)
+    q_x = fbm(x, y, octaves, persistence, lacunarity)
+    q_y = fbm(x + 5.2, y + 1.3, octaves, persistence, lacunarity)
+
+    # 2. Ebene der Verzerrung (r) - nutzt die verschobenen Koordinaten der 1. Ebene
+    r_x = fbm(x + warp_strength * q_x + 1.7, y + warp_strength * q_y + 9.2, octaves, persistence, lacunarity)
+    r_y = fbm(x + warp_strength * q_x + 8.3, y + warp_strength * q_y + 2.8, octaves, persistence, lacunarity)
+
+    # Finaler Noise-Wert mit der doppelten Verzerrung
+    return fbm(x + warp_strength * r_x, y + warp_strength * r_y, octaves, persistence, lacunarity)
 
 def fbm(x, y, octaves, persistence, lacunarity):
     total = 0.0
@@ -73,6 +97,16 @@ def get_hex_vertices(x, y, draw_radius):
 def generate_wallpaper():
     MAX_RETRIES = 15  # Maximale Versuche für ein ausbalanciertes Bild
 
+    rnd_type = random.random()
+    if rnd_type <0.6:
+        rnd_type = "river"
+    elif rnd_type <0.3:
+        rnd_type = "lake"
+    else:
+        rnd_type = "warp"
+
+
+    print("Generating " + rnd_type )
     for attempt in range(MAX_RETRIES):
         SEED = np.random.randint(2, 9999999)
         base_r = 30
@@ -84,6 +118,7 @@ def generate_wallpaper():
         MAX_OFFSET_Y = int(current_hex_radius * 2)
         GRID_OFFSET_X = random.randint(0, MAX_OFFSET_X)
         GRID_OFFSET_Y = random.randint(0, MAX_OFFSET_Y)
+
 
         # Basis-Grid Größe berechnen
         grid_width = RENDER_WIDTH + current_hex_radius * 4 + (MAX_OFFSET_X * SUPERSAMPLE)
@@ -114,8 +149,21 @@ def generate_wallpaper():
                 noise_x = (x + huge_shifter_x) / X_SCALE
                 noise_y = (y + huge_shifter_y) / Y_SCALE
 
-                noise_val = fbm(noise_x, noise_y, OCTAVES, PERSISTENCE, LACUNARITY)
-                noise_val = abs(noise_val)
+
+                if rnd_type == "river":
+                    noise_x = noise_x * 2
+                    noise_y = noise_y * 2
+                    noise_val = fbm(noise_x, noise_y, OCTAVES, PERSISTENCE, LACUNARITY)
+                    #noise_val = domain_warp(noise_x, noise_y,OCTAVES, PERSISTENCE,LACUNARITY,5)
+                    noise_val = abs(noise_val)
+                elif rnd_type == "lake":
+                    noise_x = noise_x * 4
+                    noise_y = noise_y * 4
+                    noise_val = fbm(noise_x, noise_y, OCTAVES, PERSISTENCE, LACUNARITY)
+                else: #rnd_type == "warp":
+                    noise_val = domain_warp(noise_x, noise_y,OCTAVES, PERSISTENCE,LACUNARITY,5)
+                    noise_val = abs(noise_val)
+
 
                 all_noise_values.append(noise_val)
                 hexagons_temp.append({'x': x, 'y': y, 'noise': noise_val})
@@ -172,7 +220,7 @@ def generate_wallpaper():
     pitch_cos = math.cos(pitch)
     pitch_sin = math.sin(pitch)
     cy_render = RENDER_HEIGHT / 3
-    hex_base_offsets = get_hex_vertices(0, 0, current_hex_radius - GAP_SIZE)
+    hex_base_offsets = get_hex_vertices(0, 0, current_hex_radius)
 
     SIDE_COLOR_ELEVATED = darken_color(COLOR_ELEVATED, 0.1)
     SIDE_COLOR_DARK = darken_color(COLOR_DARK, 0.1)
@@ -244,13 +292,18 @@ def generate_wallpaper():
             draw.polygon([top_pts[2], top_pts[3], base_pts[3], base_pts[2]], fill=side_color)
 
         draw.polygon(top_pts, fill=color)
-        draw.line(top_pts + [top_pts[0]], fill=outline_color, width=3)
+        draw.line(top_pts + [top_pts[0]], fill=outline_color, width=GAP_SIZE)
 
-    image = image.resize((WIDTH, HEIGHT), Image.Resampling.LANCZOS)
+    image = image.resize((WIDTH, HEIGHT), Image.Resampling.BOX)
     return image
 
 
 def set_kde_wallpaper(path_left, path_right):
+    left_right_switch=1
+    if left_right_switch ==1:
+        path_left_o = path_left
+        path_left = path_right
+        path_right = path_left_o
     """Weist KDE Plasma die beiden Bildhälften den Monitoren zu"""
     kde_script = f"""
     var allDesktops = desktops();
@@ -259,9 +312,9 @@ def set_kde_wallpaper(path_left, path_right):
         d.wallpaperPlugin = "org.kde.image";
         d.currentConfigGroup = Array("Wallpaper", "org.kde.image", "General");
         if (i == 0) {{
-            d.writeConfig("Image", "file://{path_right}");
-        }} else if (i == 1) {{
             d.writeConfig("Image", "file://{path_left}");
+        }} else if (i == 1) {{
+            d.writeConfig("Image", "file://{path_right}");
         }}
     }}
     """
